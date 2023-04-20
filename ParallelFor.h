@@ -9,8 +9,7 @@
 class ParallelFor
 {
 private:
-    std::mutex StepMutex, ThreadFinishingMutex, ConditionVarMutex;
-    std::condition_variable CondVar;
+    std::mutex StepMutex;
     int ThreadAmount, EndedThreads;
 
 private:
@@ -28,23 +27,18 @@ private:
             LocalPos = Pos;
 
             if (Pos != End) // Check if its last element
+            {
                 Pos++;
+                StepMutex.unlock(); // Stop working with positions
+            }
             else
             {
-                ThreadFinishingMutex.lock(); // Start working with thread killing
-                EndedThreads++; // Increment stopped threads amount
                 StepMutex.unlock(); // Stop working with positions
                 break;
             }
 
-            StepMutex.unlock(); // Stop working with positions
-
             lambda_func(LocalPos); // Invokes user function 
         }
-
-        if (EndedThreads >= ThreadAmount) // Checks if all threads ended
-            CondVar.notify_all(); // Notify condition variable to exit from operator()
-        ThreadFinishingMutex.unlock(); // Stop working with thread killing
     }
 
 public:
@@ -61,21 +55,21 @@ public:
     template<class T, class F>
     void operator() (T start, T end, int thread_amount, const F& lambda_func)
     {
-        EndedThreads = 0; 
         T Pos = start; T End = end; ThreadAmount = thread_amount;
 
-        std::unique_lock<std::mutex> CondVarUniqueLock(ConditionVarMutex);
+        std::vector<std::thread> Threads;
 
         // Creating threads with lambdas
         for (int i = 0; i < thread_amount; i++)
         {
-            std::thread th([this, lambda_func, &Pos, &End]()
+            Threads.push_back(std::thread([this, lambda_func, &Pos, &End]()
                 {
                     ThreadFunc(Pos, End, lambda_func);
-                });
-            th.detach();
+                })
+                );
         }
 
-        CondVar.wait(CondVarUniqueLock);
+        for (int i = 0; i < thread_amount; i++) 
+            Threads[i].join();
     }
 };
